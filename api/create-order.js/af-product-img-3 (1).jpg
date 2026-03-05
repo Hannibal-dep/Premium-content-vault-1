@@ -1,0 +1,57 @@
+// api/create-order.js - Cria ordem de pagamento na Binance
+
+const axios = require('axios');
+const crypto = require('crypto');
+const { products } = require('./products.js');
+
+module.exports = async (req, res) => {
+  res.setHeader('Access-Control-Allow-Origin', '*');
+  res.setHeader('Access-Control-Allow-Methods', 'POST, OPTIONS');
+  res.setHeader('Access-Control-Allow-Headers', 'Content-Type');
+
+  if (req.method === 'OPTIONS') return res.status(200).end();
+  if (req.method !== 'POST') return res.status(405).json({ error: 'Method not allowed' });
+
+  try {
+    const { productId, customerEmail } = req.body;
+    const product = products[productId];
+    if (!product) return res.status(404).json({ error: 'Product not found' });
+
+    const merchantTradeNo = `ORDER_${Date.now()}_${crypto.randomBytes(8).toString('hex')}`;
+    
+    const orderData = {
+      env: { terminalType: 'WEB' },
+      merchantTradeNo,
+      orderAmount: product.price,
+      currency: 'USDT',
+      description: product.name.substring(0, 100),
+      passThroughInfo: productId,
+      returnUrl: `${req.headers.origin}/success.html`,
+      cancelUrl: `${req.headers.origin}/cancel.html`,
+      webhookUrl: `${req.headers.origin}/api/webhook`
+    };
+
+    const timestamp = Date.now();
+    const nonce = crypto.randomBytes(16).toString('hex');
+    const payload = `${timestamp}\n${nonce}\n${JSON.stringify(orderData)}\n`;
+    const signature = crypto.createHmac('sha512', process.env.BINANCE_API_SECRET).update(payload).digest('hex');
+
+    const response = await axios.post('https://bpay.binanceapi.com/binancepay/openapi/v2/order', orderData, {
+      headers: {
+        'Content-Type': 'application/json',
+        'BinancePay-Timestamp': timestamp,
+        'BinancePay-Nonce': nonce,
+        'BinancePay-Certificate-SN': process.env.BINANCE_CERT_SN,
+        'BinancePay-Signature': signature
+      }
+    });
+
+    if (response.data.status === 'SUCCESS') {
+      res.json({ success: true, checkoutUrl: response.data.data.checkoutUrl, merchantTradeNo });
+    } else {
+      throw new Error(response.data.errorMessage || 'Binance API error');
+    }
+  } catch (error) {
+    res.status(500).json({ error: error.message });
+  }
+};
