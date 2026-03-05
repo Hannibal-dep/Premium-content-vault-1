@@ -1,0 +1,31 @@
+// api/webhook.js - Recebe confirmações da Binance
+
+const crypto = require('crypto');
+const { products } = require('./products.js');
+
+module.exports = async (req, res) => {
+  res.setHeader('Access-Control-Allow-Origin', '*');
+  res.setHeader('Access-Control-Allow-Methods', 'POST, OPTIONS');
+
+  if (req.method === 'OPTIONS') return res.status(200).end();
+  if (req.method !== 'POST') return res.status(405).json({ error: 'Method not allowed' });
+
+  try {
+    const body = req.body;
+    console.log('Webhook received:', body);
+
+    if (body.bizType === 'PAY' && body.bizStatus === 'PAY_SUCCESS') {
+      const data = JSON.parse(body.data);
+      const productId = data.passThroughInfo;
+      const product = products[productId];
+      
+      console.log(`✅ Pagamento confirmado para o produto: ${product?.name || productId}`);
+      // Aqui você pode adicionar lógica para enviar email depois
+    }
+
+    res.status(200).json({ returnCode: 'SUCCESS', returnMessage: 'Webhook processed' });
+  } catch (error) {
+    console.error('Webhook error:', error);
+    res.status(500).json({ returnCode: 'FAIL', returnMessage: error.message });
+  }
+};
